@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Jackpotting | Zen</title>
+<style>
+* {
+    -webkit-tap-highlight-color: transparent;
+}
+#playGround {
+	position: relative;
+	width: 400px;
+	height: 600px;
+	border: 2px solid #ccc;
+    background-color: lightblue;
+}
+.zoomIn {
+    -webkit-animation: zoomIn 1s infinite;
+    -moz-animation: zoomIn 1s infinite;
+    animation: zoomIn 1s infinite;
+    font-size: 60px;
+    text-align: center;
+}
+.score {
+    -webkit-animation: zoomIn 1s;
+    -moz-animation: zoomIn 1s;
+    animation: zoomIn 1s;
+    font-size: 20px;
+    text-align: center;
+}
+.zoomIn:before,
+.score:before {
+    content: attr(data-content);
+}
+button {
+    width: 404px;
+    height: 60px;
+    font-size: 30px;
+}
+@-webkit-keyframes zoomIn {
+    0% {
+        opacity: 0;
+        -webkit-transform: scale3d(.3, .3, .3);
+    }
+    50% {
+        opacity: 1;
+    }
+}
+@-moz-keyframes zoomIn {
+    0% {
+        opacity: 0;
+        -moz-transform: scale3d(.3, .3, .3);
+    }
+    50% {
+        opacity: 1;
+    }
+}
+@keyframes zoomIn {
+    0% {
+        opacity: 0;
+        transform: scale3d(.3, .3, .3);
+    }
+    50% {
+        opacity: 1;
+    }
+}
+</style>
+</head>
+<body onload="Jackpotting.init({render:'playGround'});">
+<div id="playGround"></div>
+<button onclick="Jackpotting.play();">开始</button>
+<script>
+var Jackpotting = (function() {
+    var giftInfo = {
+            small: {
+                score: 100,
+                weight: 0.40,
+                color: 'blue'
+            },
+            normal: {
+                score: 150,
+                weight: 0.25,
+                color: 'orange'
+            },
+            big: {
+                score: 200,
+                weight: 0.07,
+                color: 'pink'
+            },
+            bonus: {
+                score: 500,
+                weight: 0.03,
+                color: 'yellow'
+            },
+            fake: {
+                score: -50,
+                weight: 0.10,
+                color: 'brown'
+            },
+            tiny: {
+                score: 50,
+                weight: 0.15,
+                color: 'green'
+            }
+        },
+        playGround = {
+            cssAnimation: '',
+            status: 'null',
+            itemList: [],
+            weightList: [],
+            gap: 60,
+            timeout: 20,
+            timer: 500,
+            times: 1,
+            maxTimes: 3,
+            process: 0,
+            pedometer: 0,
+            grid: [],
+            score: 0,
+            track: {
+                width: '100%',
+                height: 40
+            },
+            tracker: {
+                width: 40,
+                height: 40
+            },
+            item: {
+                width: 20,
+                height: 30
+            },
+            board: {
+                width: 100,
+                height: 60
+            }
+        },
+        $ = function(id) {
+            return document.getElementById(id);
+        },
+        rand = function(min, max, int) {
+            if (int) {
+                return Math.floor(Math.random() * (max - min + 1) + min);
+            } else {
+                return Math.random() * (max - min) + min;
+            }
+        },
+        getRandomItemByWeight = function(list, weight) {
+            var totalWeight = weight.reduce(function(prev, cur, i, arr) {
+                    return prev + cur;
+                }),
+                randNum = rand(0, totalWeight),
+                weightSum = 0;
+            for (var i = 0; i < list.length; i++) {
+                weightSum += weight[i];
+                weightSum = +weightSum.toFixed(2);
+                if (randNum <= weightSum) {
+                    return list[i];
+                }
+            }
+        },
+        createBoard = function() {
+            var node = document.createElement('div'),
+                score = document.createElement('span');
+            node.id = playGround.render + 'Board';
+            node.style.cssText = 'position:absolute;top:' + (playGround.height - playGround.board.height) / 2 + 'px;left:' + (playGround.width - playGround.board.width) / 2 + 'px;width:' + playGround.board.width + 'px;height:' + playGround.board.height + 'px;z-index:2;';
+            score.id = playGround.render + 'Score';
+            score.style.cssText = 'position:absolute;top:0;right:0;font-size:12px;z-index:2;';
+            $(playGround.render).appendChild(node);
+            $(playGround.render).appendChild(score);
+            setScore(0);
+        },
+        createTrack = function() {
+            var node = document.createElement('div'),
+                track,
+                tracker;
+            node.id = playGround.render + 'Track';
+            node.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:' + playGround.track.height + 'px;';
+            node.innerHTML = '<div id="' + playGround.render + 'Tracker" style="position:absolute;width:' + playGround.tracker.width + 'px;height:' + playGround.tracker.height + 'px;background:#333;display:none;z-index:1;"></div>';
+            // document.querySelector('#' + opts.render).appendChild(node);
+            $(playGround.render).appendChild(node);
+            track = $(node.id);
+            tracker = $(playGround.render + 'Tracker');
+            $(playGround.render).onmousemove = function(e) {
+                if (playGround.status === 'play') {
+                    var left = e.clientX - track.offsetLeft;
+                    if (left + tracker.offsetWidth > playGround.width) {
+                        left = playGround.width - tracker.offsetWidth;
+                    } else if (left < tracker.offsetWidth) {
+                        left = 0;
+                    }
+                    tracker.style.left = left + 'px';
+                }
+            }
+        },
+        emptyNode = function(id) {
+            var node = $(id);
+            if (!node) {
+                return;
+            }
+            while (node.firstChild) {
+                node.removeChild(node.firstChild);
+            }
+        },
+        setScore = function(score) {
+            return $(playGround.render + 'Score').innerHTML = '得分：' + score;
+        },
+        getGift = function() {
+            var index = rand(0, playGround.grid.length - 1, true),
+                node = document.createElement('div'),
+                seed = new Date().getTime(),
+                radius = playGround.item.width * .5 + 'px ' + playGround.item.width * .5 + 'px ' + playGround.item.width * .5 + 'px ' + playGround.item.width * .5 + 'px/' + playGround.item.width * .6 + 'px ' + playGround.item.width * .6 + 'px ' + playGround.item.width * .4 + 'px ' + playGround.item.width * .4 + 'px',
+                info = getRandomItemByWeight(playGround.itemList, playGround.weightList);
+            node.id = 'award' + seed;
+            node.style.cssText = 'position:absolute;top:0;left:' + playGround.grid[index] + 'px;background:' + giftInfo[info]['color'] + ';width:' + playGround.item.width + 'px;height:' + playGround.item.height + 'px;z-index:0;-webkit-border-radius:' + radius + ';-moz-border-radius:' + radius + ';border-radius:50% 50% 50% 50%/60% 60% 40% 40%;'; ///
+            node.innerHTML = ''; ///
+            // document.querySelector('#' + playGround.render).appendChild(node);
+            $(playGround.render).appendChild(node);
+            // console.log(playGround.grid[index]);
+            $(node.id).className = playGround.cssAnimation;
+            addMultipleEvents($(node.id), 'webkitAnimationEnd mozAnimationEnd animationend', function() {
+                var curNode = this.getBoundingClientRect(),
+                    tracker = $(playGround.render + 'Tracker').getBoundingClientRect();
+                if (curNode.left + curNode.width >= tracker.left && curNode.left <= tracker.left + tracker.width) {
+                    playGround.score += giftInfo[info]['score'];
+                    setScore(playGround.score);
+                    // console.log('match', playGround.score);
+                }
+                // console.log(this.getBoundingClientRect());
+                $(playGround.render).removeChild(this);
+            });
+        },
+        play = function() {
+            var process,
+                pedometer = 3,
+                go = function() {
+                    playGround.pedometer = 0;
+                    playGround.score = 0;
+                    setScore(0);
+                    playGround.times++;
+                    playGround.status = 'play';
+                    $(playGround.render + 'Tracker').style.left = (playGround.width - $(playGround.render + 'Tracker').offsetWidth) / 2 + 'px';
+                    $(playGround.render + 'Tracker').style.display = 'block';
+                    playGround.process = setInterval(function() {
+                        if (playGround.pedometer >= playGround.timeout) {
+                            clearInterval(playGround.process);
+                            playGround.process = 0;
+                            playGround.status = 'stop';
+                            $(playGround.render + 'Tracker').style.display = 'none';
+                            $(playGround.render + 'Board').style.display = 'block';
+                            $(playGround.render + 'Board').className = 'score';
+                            $(playGround.render + 'Board').setAttribute('data-content', '时间到！');
+                            return;
+                        }
+                        getGift();
+                        playGround.pedometer++;
+                    }, playGround.timer);
+                };
+            if (playGround.process || !playGround.render) {
+                return;
+            }
+            if (playGround.times > playGround.maxTimes) {
+                $(playGround.render + 'Board').style.display = 'block';
+                $(playGround.render + 'Board').className = 'score';
+                $(playGround.render + 'Board').setAttribute('data-content', '仅限3次~');
+                return;
+            }
+            process = setInterval(function() {
+                if (pedometer < 1) {
+                    clearInterval(process);
+                    process = 0;
+                    $(playGround.render + 'Board').style.display = 'none';
+                    $(playGround.render + 'Board').className = '';
+                    return go();
+                } else if (pedometer === 3) {
+                    $(playGround.render + 'Board').style.display = 'block';
+                    $(playGround.render + 'Board').className = 'zoomIn';
+                }
+                $(playGround.render + 'Board').setAttribute('data-content', pedometer);
+                pedometer--;
+            }, 1000);
+        },
+        addMultipleEvents = function(element, events, handle) {
+            var tokens = events.split(' ');
+            for (var i = 0, len = tokens.length; i < len; i++) {
+                element.addEventListener(tokens[i], handle);
+            }
+        },
+        setKeyFramesClass = function() {
+            var cssAnimation = document.createElement('style'),
+                rules,
+                classText,
+                range = playGround.height - playGround.track.height,
+                action = 'falling 1s linear;';
+            // cssAnimation.type = 'text/css';
+            rules = document.createTextNode('@-webkit-keyframes falling{from{-webkit-transform:translateY(0px)}to{-webkit-transform:translateY(' + range + 'px)}}@-moz-keyframes falling{from{-moz-transform:translateY(0px)}to{-moz-transform:translateY(' + range + 'px)}}@keyframes falling{from{transform:translateY(0px)}to{transform:translateY(' + range + 'px)}}');
+            classText = document.createTextNode('.falling{-webkit-animation:' + action + '-moz-animation:' + action + 'animation:' + action + '}');
+            cssAnimation.appendChild(rules);
+            cssAnimation.appendChild(classText);
+            document.getElementsByTagName('head')[0].appendChild(cssAnimation);
+        },
+        init = function(opts) {
+            var leeway;
+            if (playGround.process || !opts || (opts && !opts.render)) {
+                return;
+            }
+            if ($(opts.render)) {
+                emptyNode(opts.render);
+            }
+            playGround.render = opts.render;
+            playGround.gap = opts.gap || playGround.gap;
+            playGround.pedometer = 0;
+            playGround.times = 1;
+            playGround.width = $(opts.render).clientWidth;
+            playGround.height = $(opts.render).clientHeight;
+            leeway = Math.floor(playGround.width / playGround.gap);
+            playGround.grid.length = 0;
+            for (var i = 0; i < leeway; i++) {
+                playGround.grid.push(playGround.gap * i);
+            }
+            playGround.itemList = Object.keys(giftInfo);
+            playGround.weightList = playGround.itemList.map(function(key) {
+                return giftInfo[key]['weight'];
+            });
+            if (!playGround.cssAnimation) {
+                setKeyFramesClass();
+                playGround.cssAnimation = 'falling';
+            }
+            createBoard();
+            createTrack();
+            // console.log(playGround);
+            playGround.status = 'ready';
+        };
+    return {
+        init: init,
+        play: play,
+        getScore: function() {
+            return playGround.score;
+        }
+    };
+}());
+</script>
+</body>
+</html>
